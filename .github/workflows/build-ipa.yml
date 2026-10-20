@@ -93,27 +93,54 @@ jobs:
           mkdir -p "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures"
           cp AppIntegration/*.swift "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
           ls "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
-          echo "::warning::ربط حزمة WezWordnCore في project-pm.yml مطلوب قبل نجاح ترجمة ملفات التكامل — المقتطف في AppIntegration/README.md. هذه الخطوة تنسخ الملفات فقط."
 
-      - name: Install XcodeGen (Mintfile pin 2.44.1 via mint, brew fallback)
+      - name: Link WezWordnCore package into upstream projects
+        # XcodeGen: إعلان الحزمة في project-common.yml (packages:) وربط منتجاتها
+        # السبعة في تبعيات target التطبيق داخل project-pm.yml. المسار ../ نسبي
+        # لملف الـ spec (جذر upstream) فيشير إلى WezWordnCore في جذر مستودعنا.
         run: |
-          if command -v mint >/dev/null 2>&1; then
-            (cd "$UPSTREAM_DIR" && mint bootstrap)
-          else
-            brew install xcodegen
-          fi
-          (command -v xcodegen >/dev/null 2>&1 && xcodegen --version) \
-            || (cd "$UPSTREAM_DIR" && mint run xcodegen --version)
+          python3 - <<'PYEOF'
+          import pathlib
+          common = pathlib.Path("upstream-ios/project-common.yml")
+          text = common.read_text()
+          anchor = "packages:\n  BitwardenSdk:"
+          assert anchor in text, "packages anchor not found in project-common.yml"
+          text = text.replace(anchor, "packages:\n  WezWordnCore:\n    path: ../WezWordnCore\n  BitwardenSdk:", 1)
+          common.write_text(text)
+
+          pm = pathlib.Path("upstream-ios/project-pm.yml")
+          text = pm.read_text()
+          target_anchor = "  Bitwarden:\n    type: application"
+          i = text.index(target_anchor)
+          dep_anchor = "    dependencies:\n      - target: BitwardenShared"
+          j = text.index(dep_anchor, i)
+          products = ["ExtendedLoginFields", "LocalTOTP", "LocalEncryptedStorage",
+                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing"]
+          block = "    dependencies:\n" + "".join(
+              f"      - package: WezWordnCore\n        product: {p}\n" for p in products)
+          text = text[:j] + block + text[j + len("    dependencies:\n"):]
+          pm.write_text(text)
+          print("WezWordnCore linked: package declared + 7 products added to Bitwarden target")
+          PYEOF
+
+      - name: Install Mint and bootstrap upstream tools (Mintfile)
+        # إلزامي: سكربتات build phases في upstream تستدعي `mint run ...`
+        # (swiftgen وغيرها). غياب mint من PATH أسقط Run #2 عند BitwardenResources.
+        # mint bootstrap يثبّت كل أدوات Mintfile مسبقًا (XcodeGen 2.44.1 و
+        # SwiftGen و SwiftLint و SwiftFormat و Sourcery و LicensePlist).
+        run: |
+          brew install mint
+          mint --version
+          cd "$UPSTREAM_DIR" && mint bootstrap
+          mint run xcodegen --version
 
       - name: Generate Xcode projects
         run: |
-          XCG="xcodegen"
-          command -v xcodegen >/dev/null 2>&1 || XCG="mint run xcodegen"
           cd "$UPSTREAM_DIR"
-          $XCG --spec project-bwk.yml
-          $XCG --spec project-pm.yml
-          $XCG --spec project-bwa.yml
-          $XCG --spec project-bwth.yml
+          mint run xcodegen --spec project-bwk.yml
+          mint run xcodegen --spec project-pm.yml
+          mint run xcodegen --spec project-bwa.yml
+          mint run xcodegen --spec project-bwth.yml
           ls -d *.xcodeproj Bitwarden.xcworkspace
 
       - name: Test WezWordnCore (Swift Package)
