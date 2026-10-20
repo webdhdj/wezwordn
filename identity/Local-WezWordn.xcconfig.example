@@ -38,6 +38,7 @@
 BASE_BUNDLE_ID = com.wezcrypt.wezwordn
 ORGANIZATION_IDENTIFIER = com.wezcrypt
 SHARED_APP_GROUP_IDENTIFIER = group.com.wezcrypt.wezwordn.shared
+BMPW_BUNDLE_DISPLAY_NAME = WezWordn
 
 // ⚠️ ضع معرّف فريقك هنا ثم أزل التعليق. مثال على الشكل فقط (ليست قيمة حقيقية):
 // DEVELOPMENT_TEAM = XXXXXXXXXX
