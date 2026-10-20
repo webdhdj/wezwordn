@@ -122,7 +122,7 @@ jobs:
           dep_anchor = "    dependencies:\n      - target: BitwardenShared"
           j = text.index(dep_anchor, i)
           products = ["ExtendedLoginFields", "LocalTOTP", "LocalEncryptedStorage",
-                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing"]
+                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing", "LocalDataVault"]
           block = "    dependencies:\n" + "".join(
               f"      - package: WezWordnCore\n        product: {p}\n" for p in products)
           text = text[:j] + block + text[j + len("    dependencies:\n"):]
@@ -252,7 +252,7 @@ jobs:
           dep_anchor = "    dependencies:\n      - target: BitwardenShared"
           j = text.index(dep_anchor, i)
           products = ["ExtendedLoginFields", "LocalTOTP", "LocalEncryptedStorage",
-                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing"]
+                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing", "LocalDataVault"]
           block = "    dependencies:\n" + "".join(
               f"      - package: WezWordnCore\n        product: {p}\n" for p in products)
           text = text[:j] + block + text[j + len("    dependencies:\n"):]
