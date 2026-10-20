@@ -49,7 +49,9 @@ public struct WezWordnFeaturesRootView: View {
     }
 
     public var body: some View {
-        NavigationStack {
+        // NavigationView (لا NavigationStack): هدف التطبيق iOS 15 وNavigationStack
+        // متاحة iOS 16+ فقط — أسقطت Run #4. NavigationLink بالوجهة يعمل في الاثنين.
+        NavigationView {
             List {
                 Section("WezWordn") {
                     NavigationLink {
@@ -88,10 +90,25 @@ public struct WezWordnFeaturesRootView: View {
             }
             .navigationTitle("WezWordn Features")
         }
+        .navigationViewStyle(.stack)
     }
 }
 
 // MARK: - Shared helpers
+
+/// بديل LabeledContent المتوافق مع iOS 15 (LabeledContent متاحة iOS 16+ فقط).
+private struct InfoRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value).foregroundStyle(.secondary)
+        }
+    }
+}
 
 private func copyToPasteboard(_ value: String) {
     #if canImport(UIKit)
@@ -133,14 +150,14 @@ struct ExtendedLoginEditorView: View {
                     set: { login.username = $0.isEmpty ? nil : $0 }
                 ))
                 .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .disableAutocorrection(true)
                 TextField("Email", text: Binding(
                     get: { login.email ?? "" },
                     set: { login.email = $0.isEmpty ? nil : $0 }
                 ))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .disableAutocorrection(true)
                 if let email = login.email, !email.isEmpty, !login.emailIsValid {
                     ErrorBanner(message: "Email format is invalid (ExtendedLogin.isValidEmail).")
                 }
@@ -353,7 +370,7 @@ struct AuthenticatorView: View {
             Section("Add via otpauth:// URI") {
                 TextField("otpauth://totp/...", text: $uriText)
                     .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    .disableAutocorrection(true)
                 Button("Parse & Add") {
                     do {
                         entries.append(try OTPAuthParser.parse(uriText))
@@ -371,7 +388,7 @@ struct AuthenticatorView: View {
                 TextField("Account", text: $manualAccount)
                 TextField("Base32 secret", text: $manualSecretBase32)
                     .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    .disableAutocorrection(true)
                 Button("Add") {
                     do {
                         let secret = try Base32.decode(manualSecretBase32)
@@ -445,7 +462,7 @@ struct SecurityReportsView: View {
             Section("Add item to analyse (analysed locally)") {
                 TextField("Domain (e.g. example.com)", text: $domain)
                     .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    .disableAutocorrection(true)
                 SecureField("Password", text: $password)
                 Toggle("Has TOTP", isOn: $hasTOTP)
                 Button("Add item") {
@@ -467,14 +484,14 @@ struct SecurityReportsView: View {
             }
             if let report {
                 Section("Security Dashboard") {
-                    LabeledContent("Total accounts", value: "\(report.totalCount)")
-                    LabeledContent("Weak", value: "\(report.weakCount)")
-                    LabeledContent("Reused", value: "\(report.reusedCount)")
-                    LabeledContent("Old (>365 days)", value: "\(report.oldCount)")
-                    LabeledContent("Duplicate accounts", value: "\(report.duplicateAccountCount)")
-                    LabeledContent("Missing TOTP", value: "\(report.missingTOTPCount)")
-                    LabeledContent("High risk", value: "\(report.highRiskCount)")
-                    LabeledContent("Score (documented formula)", value: "\(report.score)/100")
+                    InfoRow(label: "Total accounts", value: "\(report.totalCount)")
+                    InfoRow(label: "Weak", value: "\(report.weakCount)")
+                    InfoRow(label: "Reused", value: "\(report.reusedCount)")
+                    InfoRow(label: "Old (>365 days)", value: "\(report.oldCount)")
+                    InfoRow(label: "Duplicate accounts", value: "\(report.duplicateAccountCount)")
+                    InfoRow(label: "Missing TOTP", value: "\(report.missingTOTPCount)")
+                    InfoRow(label: "High risk", value: "\(report.highRiskCount)")
+                    InfoRow(label: "Score (documented formula)", value: "\(report.score)/100")
                 }
                 Section("Issues") {
                     if report.issues.isEmpty {
@@ -644,7 +661,7 @@ struct SecureSharingView: View {
                 TextField("Title", text: $title)
                 TextField("Username", text: $username)
                     .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    .disableAutocorrection(true)
                 SecureField("Password", text: $sharePassword)
                 TextField("Notes", text: $notes)
                 Button("Encrypt for my demo recipient key") {
@@ -670,10 +687,10 @@ struct SecureSharingView: View {
             }
             if let openedItem {
                 Section("Decrypted item") {
-                    LabeledContent("Title", value: openedItem.title)
-                    if let u = openedItem.username { LabeledContent("Username", value: u) }
-                    if let e = openedItem.email { LabeledContent("Email", value: e) }
-                    if let n = openedItem.notes { LabeledContent("Notes", value: n) }
+                    InfoRow(label: "Title", value: openedItem.title)
+                    if let u = openedItem.username { InfoRow(label: "Username", value: u) }
+                    if let e = openedItem.email { InfoRow(label: "Email", value: e) }
+                    if let n = openedItem.notes { InfoRow(label: "Notes", value: n) }
                     Text("Once decrypted by a recipient, the copy cannot be revoked from them.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
