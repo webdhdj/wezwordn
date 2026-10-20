@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "HIBPClient", targets: ["HIBPClient"]),
         .library(name: "EmergencyRecovery", targets: ["EmergencyRecovery"]),
         .library(name: "SecureSharing", targets: ["SecureSharing"]),
+        .library(name: "LocalDataVault", targets: ["LocalDataVault"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
@@ -29,6 +30,10 @@ let package = Package(
         .target(name: "HIBPClient", dependencies: [.product(name: "Crypto", package: "swift-crypto")]),
         .target(name: "EmergencyRecovery", dependencies: [.product(name: "Crypto", package: "swift-crypto")]),
         .target(name: "SecureSharing", dependencies: [.product(name: "Crypto", package: "swift-crypto")]),
+        .target(name: "LocalDataVault", dependencies: [
+            "LocalEncryptedStorage", "LocalTOTP", "ExtendedLoginFields",
+            .product(name: "Crypto", package: "swift-crypto"),
+        ]),
         .testTarget(name: "ExtendedLoginFieldsTests", dependencies: ["ExtendedLoginFields"]),
         .testTarget(name: "LocalTOTPTests", dependencies: ["LocalTOTP"]),
         .testTarget(name: "LocalEncryptedStorageTests", dependencies: ["LocalEncryptedStorage"]),
@@ -36,5 +41,6 @@ let package = Package(
         .testTarget(name: "HIBPClientTests", dependencies: ["HIBPClient"]),
         .testTarget(name: "EmergencyRecoveryTests", dependencies: ["EmergencyRecovery"]),
         .testTarget(name: "SecureSharingTests", dependencies: ["SecureSharing"]),
+        .testTarget(name: "LocalDataVaultTests", dependencies: ["LocalDataVault", "LocalEncryptedStorage", "LocalTOTP"]),
     ]
 )
