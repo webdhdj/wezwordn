@@ -1,0 +1,58 @@
+// Local-WezWordn.xcconfig.example — هوية WezWordn لتجاوز إعدادات upstream
+// ============================================================================
+// آلية upstream الرسمية (موثّقة في Configs/Common-bwpm.xcconfig نفسه):
+// إنشاء ملف غير ملتزم بالنسخ (gitignored) باسم Local-bwpm.xcconfig داخل مجلد
+// Configs/ في شجرة upstream يفرض قيم التوقيع والهوية دون تعديل أي ملف مشروع
+// مولّد. ملفات التوليد (project-*.yml) تقرأ هذا الملف إن وُجد.
+//
+// طريقة الاستخدام على macOS:
+//   1) انسخ هذا الملف إلى:  <upstream>/Configs/Local-bwpm.xcconfig
+//      (سكربت scripts/bootstrap.sh يقوم بهذه الخطوة تلقائيًا ولا يطمس
+//       نسخة موجودة أبدًا).
+//   2) ضع قيمة DEVELOPMENT_TEAM الخاصة بك (معرّف فريق Apple Developer
+//      المكوّن من 10 أحرف) — القيمة أدناه معلّقة عمدًا: لا توجد قيمة
+//      افتراضية ولا قيمة مختلقة، وبدونها يفشل التوقيع التلقائي.
+//   3) أعد توليد المشروع بـ XcodeGen (أو أعد تشغيل bootstrap.sh).
+//
+// القيم المفروضة فعليًا في هذا الملف:
+//   BASE_BUNDLE_ID = com.wezcrypt.wezwordn
+//   ORGANIZATION_IDENTIFIER = com.wezcrypt
+//     (القيمة الأصلية في upstream هي com.8bit وبناء BASE_BUNDLE_ID الأصلي
+//      هو $(ORGANIZATION_IDENTIFIER).bitwarden — تغيير المعرّفين معًا
+//      يبقي الصيغة متسقة مع أي إعداد آخر يستخدم ORGANIZATION_IDENTIFIER).
+//
+// App Group:
+//   ملفات الـ entitlements في upstream تستخدم الصيغة:
+//       group.$(BASE_BUNDLE_ID)
+//   لذلك يصبح الـ App Group الرئيسي تلقائيًا:
+//       group.com.wezcrypt.wezwordn
+//   وهو منفصل تمامًا عن group.com.8bit.bitwarden الخاص بالتطبيق الأصلي:
+//   لا مشاركة بيانات ولا استبدال عند التثبيت.
+//
+//   الـ App Group المشترك الثاني (SHARED_APP_GROUP_IDENTIFIER، تستخدمه
+//   طبقة AuthenticatorBridgeKit بين تطبيق كلمات المرور والمصادِق) قيمته
+//   الافتراضية في upstream هي group.com.bitwarden.bitwarden-authenticator
+//   وهي لا تتبع BASE_BUNDLE_ID، لذلك تُفرض قيمته صراحة أدناه بقيمة تحت
+//   نطاق WezWordn حتى لا يحدث تصادم أو فشل توقيع.
+
+BASE_BUNDLE_ID = com.wezcrypt.wezwordn
+ORGANIZATION_IDENTIFIER = com.wezcrypt
+SHARED_APP_GROUP_IDENTIFIER = group.com.wezcrypt.wezwordn.shared
+
+// ⚠️ ضع معرّف فريقك هنا ثم أزل التعليق. مثال على الشكل فقط (ليست قيمة حقيقية):
+// DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// اختياري: اسم أيقونة مخصص داخل asset catalog إن أضفت أيقونة WezWordn.
+// القيمة الافتراضية في upstream هي AppIcon — اتركها معلّقة إن لم تغيّر الأيقونة.
+// APPICON_NAME = AppIcon
+
+// اختياري: Provisioning Profile specifiers لكل هدف عند استخدام التوقيع اليدوي.
+// الافتراضي في upstream هو CODE_SIGN_STYLE = Automatic، ولا حاجة لهذه القيم
+// مع التوقيع التلقائي. أسماء المتغيرات منسوخة من توثيق Common-bwpm.xcconfig:
+// PROVISIONING_PROFILE_SPECIFIER = <main app>
+// PROVISIONING_PROFILE_SPECIFIER_ACTION_EXTENSION = <action extension>
+// PROVISIONING_PROFILE_SPECIFIER_AUTOFILL_EXTENSION = <autofill extension>
+// PROVISIONING_PROFILE_SPECIFIER_NOTIFICATION_EXTENSION = <notification extension>
+// PROVISIONING_PROFILE_SPECIFIER_SHARE_EXTENSION = <share extension>
+// PROVISIONING_PROFILE_SPECIFIER_WATCH_APP = <watch app>
+// PROVISIONING_PROFILE_SPECIFIER_WATCH_WIDGET_EXTENSION = <watch widget extension>
