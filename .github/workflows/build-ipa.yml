@@ -1,0 +1,187 @@
+# build-ipa.yml — بناء WezWordn واختباره وإنتاج IPA غير موقّع على GitHub Actions
+# =====================================================================================
+# ⚠️ طبيعة الناتج: الـ IPA المنتج هنا UNSIGNED (بلا توقيع) عمدًا:
+#   - خطوة الـ archive تعمل بـ CODE_SIGNING_ALLOWED=NO، فلا تُستخدم أي شهادة
+#     ولا يُخزَّن أي سر توقيع في هذا المستودع.
+#   - الـ IPA غير الموقّع لا يُثبّت على جهاز كما هو؛ يحتاج إعادة توقيع بإحدى:
+#       * AltStore / SideStore (توقيع بمعرّف Apple ID الشخصي وفريقك الخاص)،
+#       * أو توقيع يدوي بشهادة/فريق Apple Developer تملكه.
+#   - عند إعادة التوقيع بفريق مختلف تُعاد كتابة App Groups والـ keychain
+#     access groups بمعرّف الفريق الجديد — راجع قيود INSTALL.md.
+#
+# ملاحظات بنية (مُتحقق منها من upstream نفسه):
+#   - لا يوجد أي .xcodeproj ملتزم في bitwarden/ios؛ المشاريع تُولّد بـ XcodeGen
+#     (الإصدار مثبّت في Mintfile: 2.44.1) من project-*.yml.
+#   - ملف upstream/.xcode-version يطلب Xcode 26.6 بالتحديد، ومحاكي الاختبار
+#     iOS 26.5 على iPhone 17 Pro (.test-simulator-ios-version /
+#     .test-simulator-device-name). خطوة اختيار Xcode أدناه تحاول ضبط
+#     26.6 إن توفّر على الـ runner وتطبع الإصدار الفعلي دائمًا؛ إن غاب
+#     26.6 من صورة macos-latest الحالية ستفشل خطوة الاختبار/الأرشفة صراحة
+#     بدل إنتاج ناتج مضلّل.
+#   - اسم مخطط التطبيق في project-pm.yml هو "Bitwarden" حرفيًا (scheme:
+#     Bitwarden) — لا يوجد مخطط باسم BitwardenPM في upstream.
+#   - deployment target هو iOS 15.0 (project-common.yml). لا يوجد أي دعم
+#     مُتحقق لـ iOS 27 في upstream أو في هذا الـ workflow.
+#
+# الأسرار: لا يستخدم هذا الـ workflow أي GitHub Secrets. مسار التوقيع الكامل
+# (شهادة توزيع + provisioning profiles من Secrets) خارج نطاق هذا الملف
+# وموثّق في BUILD.md.
+
+name: Build WezWordn IPA (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test core + build unsigned IPA
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    env:
+      UPSTREAM_DIR: upstream-ios
+      CORE_DIR: WezWordnCore
+      SCHEME: Bitwarden
+      WORKSPACE: upstream-ios/Bitwarden.xcworkspace
+
+    steps:
+      - name: Checkout WezWordn
+        uses: actions/checkout@v4
+
+      - name: Select Xcode per upstream .xcode-version (26.6)
+        run: |
+          if [ -d "/Applications/Xcode_26.6.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          else
+            echo "::warning::Xcode 26.6 غير موجود على هذا الـ runner؛ سيُستخدم Xcode الافتراضي وقد تفشل الخطوات التالية."
+            ls /Applications | grep -i xcode || true
+          fi
+          xcodebuild -version
+
+      - name: Fetch upstream bitwarden/ios (tarball)
+        # ملاحظة: git clone لكامل المستودع ثقيل وبطيء على runners؛ الـ tarball
+        # الرسمي من codeload لنفس الفرع يعطي لقطة مصدر مكافئة للبناء.
+        # إن احتجت سجل git كاملًا استبدل هذه الخطوة بـ actions/checkout
+        # بمعامل repository: bitwarden/ios.
+        run: |
+          curl -fL -o /tmp/bw-ios.tar.gz \
+            https://codeload.github.com/bitwarden/ios/tar.gz/refs/heads/main
+          gzip -t /tmp/bw-ios.tar.gz
+          mkdir -p "$UPSTREAM_DIR"
+          tar -xzf /tmp/bw-ios.tar.gz -C /tmp
+          cp -a /tmp/ios-main/. "$UPSTREAM_DIR/"
+          test -f "$UPSTREAM_DIR/project-pm.yml"
+
+      - name: Apply WezWordn identity (Local-bwpm.xcconfig)
+        run: |
+          cp identity/Local-WezWordn.xcconfig.example \
+             "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          # البناء هنا غير موقّع (CODE_SIGNING_ALLOWED=NO) فلا حاجة لقيمة
+          # DEVELOPMENT_TEAM حقيقية؛ القيمة المؤقتة أدناه تمنع فشل توليد
+          # المشروع فقط ولا تدخل في أي توقيع.
+          printf '\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            >> "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          cat "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+
+      - name: Copy AppIntegration sources into app target
+        run: |
+          mkdir -p "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures"
+          cp AppIntegration/*.swift "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
+          ls "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
+          echo "::warning::ربط حزمة WezWordnCore في project-pm.yml مطلوب قبل نجاح ترجمة ملفات التكامل — المقتطف في AppIntegration/README.md. هذه الخطوة تنسخ الملفات فقط."
+
+      - name: Install XcodeGen (Mintfile pin 2.44.1 via mint, brew fallback)
+        run: |
+          if command -v mint >/dev/null 2>&1; then
+            (cd "$UPSTREAM_DIR" && mint bootstrap)
+          else
+            brew install xcodegen
+          fi
+          (command -v xcodegen >/dev/null 2>&1 && xcodegen --version) \
+            || (cd "$UPSTREAM_DIR" && mint run xcodegen --version)
+
+      - name: Generate Xcode projects
+        run: |
+          XCG="xcodegen"
+          command -v xcodegen >/dev/null 2>&1 || XCG="mint run xcodegen"
+          cd "$UPSTREAM_DIR"
+          $XCG --spec project-bwk.yml
+          $XCG --spec project-pm.yml
+          $XCG --spec project-bwa.yml
+          $XCG --spec project-bwth.yml
+          ls -d *.xcodeproj Bitwarden.xcworkspace
+
+      - name: Test WezWordnCore (Swift Package)
+        run: |
+          cd "$CORE_DIR"
+          swift test
+
+      - name: Test Bitwarden scheme (upstream unit tests on simulator)
+        run: |
+          SIM_NAME="$(cat "$UPSTREAM_DIR/.test-simulator-device-name")"
+          SIM_OS="$(cat "$UPSTREAM_DIR/.test-simulator-ios-version")"
+          echo "Simulator: $SIM_NAME / iOS $SIM_OS"
+          xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=${SIM_NAME},OS=${SIM_OS}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Archive app (unsigned)
+        run: |
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/build/WezWordn.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Assemble unsigned .ipa from archived .app
+        run: |
+          APP_PATH="$(find build/WezWordn.xcarchive/Products/Applications -maxdepth 1 -name '*.app' | head -n 1)"
+          test -n "$APP_PATH"
+          echo "App bundle: $APP_PATH"
+          rm -rf Payload WezWordn.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          # IPA هو ZIP ببنية Payload/<App>.app — الاسم النهائي المطلوب: WezWordn.ipa
+          zip -qry WezWordn.ipa Payload
+          unzip -l WezWordn.ipa | head -n 30
+
+      - name: Checksums
+        run: |
+          shasum -a 256 WezWordn.ipa | tee SHA256SUMS.txt
+          shasum -a 256 build/WezWordn.xcarchive/Products/Applications/*.app/* 2>/dev/null | head -n 5 || true
+
+      - name: Upload artifacts (unsigned IPA + archive + checksums)
+        uses: actions/upload-artifact@v4
+        with:
+          name: WezWordn-unsigned
+          path: |
+            WezWordn.ipa
+            SHA256SUMS.txt
+            build/WezWordn.xcarchive
+          if-no-files-found: error
+          retention-days: 30
+
+      # إنشاء GitHub Release عند دفع tag بصيغة v* — اختياري ومعطّل افتراضيًا
+      # لأنه يتطلب صلاحية contents: write وسياسة نشر يقررها مالك المستودع:
+      #
+      # - name: Create GitHub Release
+      #   if: startsWith(github.ref, 'refs/tags/v')
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: |
+      #       WezWordn.ipa
+      #       SHA256SUMS.txt
+      #     body: |
+      #       WezWordn — بناء غير موقّع. يحتاج إعادة توقيع عبر AltStore/SideStore
+      #       أو شهادة Apple Developer قبل التثبيت. انظر INSTALL.md.
