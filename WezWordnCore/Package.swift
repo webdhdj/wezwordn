@@ -3,6 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "WezWordnCore",
+    // إلزامي لبناء macOS: بدونه يفترض SwiftPM حد macOS 10.13 فتفشل واجهات
+    // swift-crypto (AES/Curve25519 متاحة macOS 10.15+). على iOS الحد 15 أصلًا.
+    platforms: [
+        .iOS(.v15),
+        .macOS(.v13),
+    ],
     products: [
         .library(name: "ExtendedLoginFields", targets: ["ExtendedLoginFields"]),
         .library(name: "LocalTOTP", targets: ["LocalTOTP"]),
