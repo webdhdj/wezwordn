@@ -1,31 +1,28 @@
-# build-ipa.yml — بناء WezWordn واختباره وإنتاج IPA غير موقّع على GitHub Actions
+# build-ipa.yml — WezWordn CI: ثلاث مهام منفصلة (v2)
 # =====================================================================================
-# ⚠️ طبيعة الناتج: الـ IPA المنتج هنا UNSIGNED (بلا توقيع) عمدًا:
-#   - خطوة الـ archive تعمل بـ CODE_SIGNING_ALLOWED=NO، فلا تُستخدم أي شهادة
-#     ولا يُخزَّن أي سر توقيع في هذا المستودع.
-#   - الـ IPA غير الموقّع لا يُثبّت على جهاز كما هو؛ يحتاج إعادة توقيع بإحدى:
-#       * AltStore / SideStore (توقيع بمعرّف Apple ID الشخصي وفريقك الخاص)،
-#       * أو توقيع يدوي بشهادة/فريق Apple Developer تملكه.
-#   - عند إعادة التوقيع بفريق مختلف تُعاد كتابة App Groups والـ keychain
-#     access groups بمعرّف الفريق الجديد — راجع قيود INSTALL.md.
+# البنية:
+#   1) core-tests            — اختبارات WezWordnCore (Swift Package) فقط.
+#   2) upstream-compat-tests — اختبارات Bitwarden الأصلية على المحاكي.
+#      مهمة توافق إلزامية: فشلها يعني أن الإصدار غير معتمد نهائيًا، حتى لو
+#      نجح بناء الـ IPA في المهمة الثالثة (التي تعمل مستقلة لأغراض التشخيص).
+#   3) build-ipa             — أرشفة غير موقّعة + تجميع WezWordn.ipa + تحقق
+#      آلي من محتوى الـ .app (Bundle ID واسم العرض والامتدادات).
 #
-# ملاحظات بنية (مُتحقق منها من upstream نفسه):
-#   - لا يوجد أي .xcodeproj ملتزم في bitwarden/ios؛ المشاريع تُولّد بـ XcodeGen
-#     (الإصدار مثبّت في Mintfile: 2.44.1) من project-*.yml.
-#   - ملف upstream/.xcode-version يطلب Xcode 26.6 بالتحديد، ومحاكي الاختبار
-#     iOS 26.5 على iPhone 17 Pro (.test-simulator-ios-version /
-#     .test-simulator-device-name). خطوة اختيار Xcode أدناه تحاول ضبط
-#     26.6 إن توفّر على الـ runner وتطبع الإصدار الفعلي دائمًا؛ إن غاب
-#     26.6 من صورة macos-latest الحالية ستفشل خطوة الاختبار/الأرشفة صراحة
-#     بدل إنتاج ناتج مضلّل.
-#   - اسم مخطط التطبيق في project-pm.yml هو "Bitwarden" حرفيًا (scheme:
-#     Bitwarden) — لا يوجد مخطط باسم BitwardenPM في upstream.
-#   - deployment target هو iOS 15.0 (project-common.yml). لا يوجد أي دعم
-#     مُتحقق لـ iOS 27 في upstream أو في هذا الـ workflow.
+# قواعد صارمة:
+#   - لا continue-on-error في أي خطوة؛ الفشل يظهر فشلًا.
+#   - سجلات xcodebuild وملفات xcresult تُرفع كـ Artifacts دائمًا (if: always).
+#   - لا أسرار توقيع: الأرشفة بـ CODE_SIGNING_ALLOWED=NO، والناتج UNSIGNED
+#     يحتاج إعادة توقيع عبر AltStore/SideStore أو شهادة Apple Developer.
 #
-# الأسرار: لا يستخدم هذا الـ workflow أي GitHub Secrets. مسار التوقيع الكامل
-# (شهادة توزيع + provisioning profiles من Secrets) خارج نطاق هذا الملف
-# وموثّق في BUILD.md.
+# دروس runs #1–#3 الموثّقة:
+#   - غياب platforms في WezWordnCore أسقط ترجمة macOS (أُصلح في Package.swift).
+#   - غياب mint أسقط سكربت SwiftGen (PhaseScriptExecution) في target
+#     BitwardenResources: ‏"mint: command not found" exit 65 — السكربت نفسه
+#     يضيف /opt/homebrew/bin إلى PATH، فتثبيت mint عبر brew كافٍ، مع
+#     mint bootstrap لتثبيت أدوات Mintfile الست مسبقًا.
+#   - Resolve Package Graph كان سليمًا في كل الـ runs؛ الخطوة هنا صريحة
+#     ومستقلة مع تخزين مؤقت لمجلد SourcePackages بمفتاح بصمة
+#     Package.resolved (دون تغيير أي إصدار تبعية).
 
 name: Build WezWordn IPA (unsigned)
 
@@ -37,18 +34,40 @@ on:
 permissions:
   contents: read
 
+env:
+  UPSTREAM_DIR: upstream-ios
+  SCHEME: Bitwarden
+  WORKSPACE: upstream-ios/Bitwarden.xcworkspace
+  SPM_CACHE: .spm-cache
+
 jobs:
-  build:
-    name: Test core + build unsigned IPA
+  core-tests:
+    name: Test WezWordnCore
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout WezWordn
+        uses: actions/checkout@v4
+
+      - name: Run WezWordnCore tests
+        run: |
+          set -o pipefail
+          cd WezWordnCore
+          swift test 2>&1 | tee ../core-tests.log
+
+      - name: Upload core test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-tests-log
+          path: core-tests.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  upstream-compat-tests:
+    name: Test upstream Bitwarden compatibility
     runs-on: macos-latest
     timeout-minutes: 120
-
-    env:
-      UPSTREAM_DIR: upstream-ios
-      CORE_DIR: WezWordnCore
-      SCHEME: Bitwarden
-      WORKSPACE: upstream-ios/Bitwarden.xcworkspace
-
     steps:
       - name: Checkout WezWordn
         uses: actions/checkout@v4
@@ -58,16 +77,12 @@ jobs:
           if [ -d "/Applications/Xcode_26.6.app" ]; then
             sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
           else
-            echo "::warning::Xcode 26.6 غير موجود على هذا الـ runner؛ سيُستخدم Xcode الافتراضي وقد تفشل الخطوات التالية."
+            echo "::warning::Xcode 26.6 غير موجود على هذا الـ runner؛ سيُستخدم Xcode الافتراضي."
             ls /Applications | grep -i xcode || true
           fi
           xcodebuild -version
 
       - name: Fetch upstream bitwarden/ios (tarball)
-        # ملاحظة: git clone لكامل المستودع ثقيل وبطيء على runners؛ الـ tarball
-        # الرسمي من codeload لنفس الفرع يعطي لقطة مصدر مكافئة للبناء.
-        # إن احتجت سجل git كاملًا استبدل هذه الخطوة بـ actions/checkout
-        # بمعامل repository: bitwarden/ios.
         run: |
           curl -fL -o /tmp/bw-ios.tar.gz \
             https://codeload.github.com/bitwarden/ios/tar.gz/refs/heads/main
@@ -81,9 +96,6 @@ jobs:
         run: |
           cp identity/Local-WezWordn.xcconfig.example \
              "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
-          # البناء هنا غير موقّع (CODE_SIGNING_ALLOWED=NO) فلا حاجة لقيمة
-          # DEVELOPMENT_TEAM حقيقية؛ القيمة المؤقتة أدناه تمنع فشل توليد
-          # المشروع فقط ولا تدخل في أي توقيع.
           printf '\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
             >> "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
           cat "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
@@ -95,9 +107,6 @@ jobs:
           ls "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
 
       - name: Link WezWordnCore package into upstream projects
-        # XcodeGen: إعلان الحزمة في project-common.yml (packages:) وربط منتجاتها
-        # السبعة في تبعيات target التطبيق داخل project-pm.yml. المسار ../ نسبي
-        # لملف الـ spec (جذر upstream) فيشير إلى WezWordnCore في جذر مستودعنا.
         run: |
           python3 - <<'PYEOF'
           import pathlib
@@ -107,11 +116,9 @@ jobs:
           assert anchor in text, "packages anchor not found in project-common.yml"
           text = text.replace(anchor, "packages:\n  WezWordnCore:\n    path: ../WezWordnCore\n  BitwardenSdk:", 1)
           common.write_text(text)
-
           pm = pathlib.Path("upstream-ios/project-pm.yml")
           text = pm.read_text()
-          target_anchor = "  Bitwarden:\n    type: application"
-          i = text.index(target_anchor)
+          i = text.index("  Bitwarden:\n    type: application")
           dep_anchor = "    dependencies:\n      - target: BitwardenShared"
           j = text.index(dep_anchor, i)
           products = ["ExtendedLoginFields", "LocalTOTP", "LocalEncryptedStorage",
@@ -123,13 +130,22 @@ jobs:
           print("WezWordnCore linked: package declared + 7 products added to Bitwarden target")
           PYEOF
 
+      - name: Cache Mint tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.mint
+          key: mint-${{ runner.os }}-${{ hashFiles('upstream-ios/Mintfile') }}
+
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SPM_CACHE }}
+          key: spm-${{ runner.os }}-${{ hashFiles('upstream-ios/Bitwarden.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'WezWordnCore/Package.resolved') }}
+
       - name: Install Mint and bootstrap upstream tools (Mintfile)
-        # إلزامي: سكربتات build phases في upstream تستدعي `mint run ...`
-        # (swiftgen وغيرها). غياب mint من PATH أسقط Run #2 عند BitwardenResources.
-        # mint bootstrap يثبّت كل أدوات Mintfile مسبقًا (XcodeGen 2.44.1 و
-        # SwiftGen و SwiftLint و SwiftFormat و Sourcery و LicensePlist).
         run: |
           brew install mint
+          sudo ln -sf "$(command -v mint)" /usr/local/bin/mint || true
           mint --version
           cd "$UPSTREAM_DIR" && mint bootstrap
           mint run xcodegen --version
@@ -143,33 +159,157 @@ jobs:
           mint run xcodegen --spec project-bwth.yml
           ls -d *.xcodeproj Bitwarden.xcworkspace
 
-      - name: Test WezWordnCore (Swift Package)
+      - name: Resolve package dependencies (explicit)
         run: |
-          cd "$CORE_DIR"
-          swift test
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" 2>&1 | tee resolve-packages.log
 
       - name: Test Bitwarden scheme (upstream unit tests on simulator)
         run: |
+          set -o pipefail
           SIM_NAME="$(cat "$UPSTREAM_DIR/.test-simulator-device-name")"
           SIM_OS="$(cat "$UPSTREAM_DIR/.test-simulator-ios-version")"
           echo "Simulator: $SIM_NAME / iOS $SIM_OS"
+          mkdir -p build
           xcodebuild test \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=${SIM_NAME},OS=${SIM_OS}" \
-            CODE_SIGNING_ALLOWED=NO
+            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" \
+            -resultBundlePath "$PWD/build/CompatTestResults.xcresult" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/compat-tests.log
+
+      - name: Upload compat test diagnostics (xcresult + logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-compat-diagnostics
+          path: |
+            build/CompatTestResults.xcresult
+            build/compat-tests.log
+            resolve-packages.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  build-ipa:
+    name: Build unsigned WezWordn.ipa
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout WezWordn
+        uses: actions/checkout@v4
+
+      - name: Select Xcode per upstream .xcode-version (26.6)
+        run: |
+          if [ -d "/Applications/Xcode_26.6.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          else
+            echo "::warning::Xcode 26.6 غير موجود على هذا الـ runner؛ سيُستخدم Xcode الافتراضي."
+            ls /Applications | grep -i xcode || true
+          fi
+          xcodebuild -version
+
+      - name: Fetch upstream bitwarden/ios (tarball)
+        run: |
+          curl -fL -o /tmp/bw-ios.tar.gz \
+            https://codeload.github.com/bitwarden/ios/tar.gz/refs/heads/main
+          gzip -t /tmp/bw-ios.tar.gz
+          mkdir -p "$UPSTREAM_DIR"
+          tar -xzf /tmp/bw-ios.tar.gz -C /tmp
+          cp -a /tmp/ios-main/. "$UPSTREAM_DIR/"
+          test -f "$UPSTREAM_DIR/project-pm.yml"
+
+      - name: Apply WezWordn identity (Local-bwpm.xcconfig)
+        run: |
+          cp identity/Local-WezWordn.xcconfig.example \
+             "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          printf '\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            >> "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          cat "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+
+      - name: Copy AppIntegration sources into app target
+        run: |
+          mkdir -p "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures"
+          cp AppIntegration/*.swift "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
+          ls "$UPSTREAM_DIR/Bitwarden/Application/WezWordnFeatures/"
+
+      - name: Link WezWordnCore package into upstream projects
+        run: |
+          python3 - <<'PYEOF'
+          import pathlib
+          common = pathlib.Path("upstream-ios/project-common.yml")
+          text = common.read_text()
+          anchor = "packages:\n  BitwardenSdk:"
+          assert anchor in text, "packages anchor not found in project-common.yml"
+          text = text.replace(anchor, "packages:\n  WezWordnCore:\n    path: ../WezWordnCore\n  BitwardenSdk:", 1)
+          common.write_text(text)
+          pm = pathlib.Path("upstream-ios/project-pm.yml")
+          text = pm.read_text()
+          i = text.index("  Bitwarden:\n    type: application")
+          dep_anchor = "    dependencies:\n      - target: BitwardenShared"
+          j = text.index(dep_anchor, i)
+          products = ["ExtendedLoginFields", "LocalTOTP", "LocalEncryptedStorage",
+                      "VaultHealth", "HIBPClient", "EmergencyRecovery", "SecureSharing"]
+          block = "    dependencies:\n" + "".join(
+              f"      - package: WezWordnCore\n        product: {p}\n" for p in products)
+          text = text[:j] + block + text[j + len("    dependencies:\n"):]
+          pm.write_text(text)
+          print("WezWordnCore linked: package declared + 7 products added to Bitwarden target")
+          PYEOF
+
+      - name: Cache Mint tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.mint
+          key: mint-${{ runner.os }}-${{ hashFiles('upstream-ios/Mintfile') }}
+
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SPM_CACHE }}
+          key: spm-${{ runner.os }}-${{ hashFiles('upstream-ios/Bitwarden.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'WezWordnCore/Package.resolved') }}
+
+      - name: Install Mint and bootstrap upstream tools (Mintfile)
+        run: |
+          brew install mint
+          sudo ln -sf "$(command -v mint)" /usr/local/bin/mint || true
+          mint --version
+          cd "$UPSTREAM_DIR" && mint bootstrap
+          mint run xcodegen --version
+
+      - name: Generate Xcode projects
+        run: |
+          cd "$UPSTREAM_DIR"
+          mint run xcodegen --spec project-bwk.yml
+          mint run xcodegen --spec project-pm.yml
+          mint run xcodegen --spec project-bwa.yml
+          mint run xcodegen --spec project-bwth.yml
+          ls -d *.xcodeproj Bitwarden.xcworkspace
+
+      - name: Resolve package dependencies (explicit)
+        run: |
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" 2>&1 | tee resolve-packages.log
 
       - name: Archive app (unsigned)
         run: |
+          set -o pipefail
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "$PWD/build/WezWordn.xcarchive" \
+            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" 2>&1 | tee build-archive.log
 
       - name: Assemble unsigned .ipa from archived .app
         run: |
@@ -179,36 +319,39 @@ jobs:
           rm -rf Payload WezWordn.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          # IPA هو ZIP ببنية Payload/<App>.app — الاسم النهائي المطلوب: WezWordn.ipa
           zip -qry WezWordn.ipa Payload
           unzip -l WezWordn.ipa | head -n 30
+
+      - name: Verify app bundle identity and contents
+        run: |
+          APP_PATH="$(find build/WezWordn.xcarchive/Products/Applications -maxdepth 1 -name '*.app' | head -n 1)"
+          PLIST="$APP_PATH/Info.plist"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
+          DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          echo "Bundle ID:    $BUNDLE_ID"
+          echo "Display name: $DISPLAY_NAME"
+          echo "Version:      $VERSION"
+          echo "Extensions:"; ls "$APP_PATH/PlugIns"
+          echo "Frameworks:"; ls "$APP_PATH/Frameworks"
+          test "$BUNDLE_ID" = "com.wezcrypt.wezwordn" || { echo "::error::Bundle ID mismatch: $BUNDLE_ID"; exit 1; }
+          test "$DISPLAY_NAME" = "WezWordn" || { echo "::error::Display name mismatch: $DISPLAY_NAME"; exit 1; }
+          ls "$APP_PATH/PlugIns" | grep -qi autofill || { echo "::error::AutoFill extension missing"; exit 1; }
+          file "$APP_PATH"/* | grep -i 'Mach-O' | head -n 3 || true
 
       - name: Checksums
         run: |
           shasum -a 256 WezWordn.ipa | tee SHA256SUMS.txt
-          shasum -a 256 build/WezWordn.xcarchive/Products/Applications/*.app/* 2>/dev/null | head -n 5 || true
 
-      - name: Upload artifacts (unsigned IPA + archive + checksums)
+      - name: Upload artifacts (unsigned IPA + archive log)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: WezWordn-unsigned
           path: |
             WezWordn.ipa
             SHA256SUMS.txt
-            build/WezWordn.xcarchive
+            build-archive.log
+            resolve-packages.log
           if-no-files-found: error
           retention-days: 30
-
-      # إنشاء GitHub Release عند دفع tag بصيغة v* — اختياري ومعطّل افتراضيًا
-      # لأنه يتطلب صلاحية contents: write وسياسة نشر يقررها مالك المستودع:
-      #
-      # - name: Create GitHub Release
-      #   if: startsWith(github.ref, 'refs/tags/v')
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     files: |
-      #       WezWordn.ipa
-      #       SHA256SUMS.txt
-      #     body: |
-      #       WezWordn — بناء غير موقّع. يحتاج إعادة توقيع عبر AltStore/SideStore
-      #       أو شهادة Apple Developer قبل التثبيت. انظر INSTALL.md.
