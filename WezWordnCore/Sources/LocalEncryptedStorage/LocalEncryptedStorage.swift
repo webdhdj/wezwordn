@@ -166,4 +166,35 @@ _ = FileManager.default.createFile(atPath: destination.path, contents: nil)
     public static func decryptFile(at source: URL, to destination: URL, keyProvider: KeyProvider) throws {
         try decryptFile(at: source, to: destination, key: try keyProvider.encryptionKey())
     }
+
+    /// Re-encrypts an existing WZEN file from `oldKey` to `newKey` in place.
+    ///
+    /// Safety contract: the original file is only replaced after BOTH the
+    /// full decryption with `oldKey` and the full re-encryption with
+    /// `newKey` have succeeded in temporary sibling files. On any failure
+    /// (wrong old key, I/O error) the temporary files are deleted and the
+    /// original file is left byte-for-byte untouched.
+    public static func rekeyFile(at url: URL, oldKey: SymmetricKey, newKey: SymmetricKey, chunkSize: Int = defaultChunkSize) throws {
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        let plainTmp = dir.appendingPathComponent(".rekey-plain-\(UUID().uuidString)")
+        let encTmp = dir.appendingPathComponent(".rekey-enc-\(UUID().uuidString)")
+        defer {
+            try? fm.removeItem(at: plainTmp)
+            try? fm.removeItem(at: encTmp)
+        }
+        // Throws (e.g. .authenticationFailed on a wrong old key) before the
+        // original is touched; both temp files are cleaned up by the defer.
+        try decryptFile(at: url, to: plainTmp, key: oldKey)
+        try encryptFile(at: plainTmp, to: encTmp, key: newKey, chunkSize: chunkSize)
+        // Both steps succeeded: swap the new ciphertext into place.
+        try? fm.removeItem(at: plainTmp)
+        try fm.removeItem(at: url)
+        try fm.moveItem(at: encTmp, to: url)
+    }
+
+    public static func rekeyFile(at url: URL, oldKeyProvider: KeyProvider, newKeyProvider: KeyProvider, chunkSize: Int = defaultChunkSize) throws {
+        try rekeyFile(at: url, oldKey: try oldKeyProvider.encryptionKey(),
+                      newKey: try newKeyProvider.encryptionKey(), chunkSize: chunkSize)
+    }
 }
