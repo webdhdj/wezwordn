@@ -38,7 +38,6 @@ env:
   UPSTREAM_DIR: upstream-ios
   SCHEME: Bitwarden
   WORKSPACE: upstream-ios/Bitwarden.xcworkspace
-  SPM_CACHE: .spm-cache
 
 jobs:
   core-tests:
@@ -136,11 +135,6 @@ jobs:
           path: ~/.mint
           key: mint-${{ runner.os }}-${{ hashFiles('upstream-ios/Mintfile') }}
 
-      - name: Cache SwiftPM source packages
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SPM_CACHE }}
-          key: spm-${{ runner.os }}-${{ hashFiles('upstream-ios/Bitwarden.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'WezWordnCore/Package.resolved') }}
 
       - name: Install Mint and bootstrap upstream tools (Mintfile)
         run: |
@@ -164,8 +158,7 @@ jobs:
           set -o pipefail
           xcodebuild -resolvePackageDependencies \
             -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" 2>&1 | tee resolve-packages.log
+            -scheme "$SCHEME" 2>&1 | tee resolve-packages.log
 
       - name: Test Bitwarden scheme (upstream unit tests on simulator)
         run: |
@@ -178,7 +171,6 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=${SIM_NAME},OS=${SIM_OS}" \
-            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" \
             -resultBundlePath "$PWD/build/CompatTestResults.xcresult" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/compat-tests.log
 
@@ -266,11 +258,6 @@ jobs:
           path: ~/.mint
           key: mint-${{ runner.os }}-${{ hashFiles('upstream-ios/Mintfile') }}
 
-      - name: Cache SwiftPM source packages
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SPM_CACHE }}
-          key: spm-${{ runner.os }}-${{ hashFiles('upstream-ios/Bitwarden.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'WezWordnCore/Package.resolved') }}
 
       - name: Install Mint and bootstrap upstream tools (Mintfile)
         run: |
@@ -294,8 +281,7 @@ jobs:
           set -o pipefail
           xcodebuild -resolvePackageDependencies \
             -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" 2>&1 | tee resolve-packages.log
+            -scheme "$SCHEME" 2>&1 | tee resolve-packages.log
 
       - name: Archive app (unsigned)
         run: |
@@ -306,7 +292,6 @@ jobs:
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "$PWD/build/WezWordn.xcarchive" \
-            -clonedSourcePackagesDirPath "$PWD/$SPM_CACHE" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" 2>&1 | tee build-archive.log
