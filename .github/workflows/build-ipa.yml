@@ -169,6 +169,12 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" 2>&1 | tee resolve-packages.log
 
+      # التوقيع هنا ad-hoc (-‎) عمدًا وداخل مهمة التوافق فقط: بلا أي توقيع
+      # (CODE_SIGNING_ALLOWED=NO) لا تُضمّن entitlements في ثنائية المحاكي،
+      # فيعود containerURL(forSecurityApplicationGroupIdentifier:) بـ nil
+      # وتنهار اختبارات DataStore/ServiceContainer على force-unwrap —
+      # كما حدث في Run #16/#18. التوقيع ad-hoc يضمّن الـ entitlements دون
+      # أي شهادة أو سر، وCI الرسمي لـ upstream يوقّع بفريق حقيقي للسبب نفسه.
       - name: Test Bitwarden scheme (upstream unit tests on simulator)
         run: |
           set -o pipefail
@@ -181,7 +187,8 @@ jobs:
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=${SIM_NAME},OS=${SIM_OS}" \
             -resultBundlePath "$PWD/build/CompatTestResults.xcresult" \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/compat-tests.log
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_IDENTITY="-" 2>&1 | tee build/compat-tests.log
 
       - name: Upload compat test diagnostics (xcresult + logs)
         if: always()
