@@ -153,6 +153,10 @@ jobs:
           cd "$UPSTREAM_DIR" && mint bootstrap
           mint run xcodegen --version
 
+      - name: Apply WezWordn integration patches
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/patches/01-settings-entry.py" "$UPSTREAM_DIR"
+
       - name: Generate Xcode projects
         run: |
           cd "$UPSTREAM_DIR"
@@ -291,6 +295,10 @@ jobs:
           mint --version
           cd "$UPSTREAM_DIR" && mint bootstrap
           mint run xcodegen --version
+
+      - name: Apply WezWordn integration patches
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/patches/01-settings-entry.py" "$UPSTREAM_DIR"
 
       - name: Generate Xcode projects
         run: |
