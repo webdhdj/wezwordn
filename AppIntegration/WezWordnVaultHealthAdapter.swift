@@ -89,9 +89,16 @@ public final class UpstreamVaultHealthDataSource: WezWordnVaultHealthDataSource 
             break
         }
 
+        // Login test by public pattern matching: the SDK's
+        // `CipherListViewType.isLogin` helper lives in an internal
+        // BitwardenShared extension and is not visible from the app
+        // target (CI Run #24/#27 compile errors).
         let loginIDs = listViews
-            .filter { $0.type.isLogin && $0.deletedDate == nil }
-            .compactMap(\.id)
+            .filter { $0.deletedDate == nil }
+            .compactMap { listView -> String? in
+                guard case .login = listView.type else { return nil }
+                return listView.id
+            }
 
         var snapshots: [WezWordnCipherSnapshot] = []
         snapshots.reserveCapacity(loginIDs.count)
@@ -99,8 +106,13 @@ public final class UpstreamVaultHealthDataSource: WezWordnVaultHealthDataSource 
             // fetchCipher returns the fully decrypted CipherView. Items
             // that vanished mid-sync, are not logins, are in the trash, or
             // carry no login payload are skipped, never fabricated.
+            // The operative login test here is the presence of the
+            // decrypted login payload itself (`cipher.login`), which
+            // the health mapper consumes; a bare `cipher.type`
+            // comparison failed to type-check from the app target
+            // (CI Run #24/#27) and adds nothing once the payload is
+            // required anyway.
             guard let cipher = try await vaultRepository.fetchCipher(withId: id),
-                  cipher.type == .login,
                   cipher.deletedDate == nil,
                   let login = cipher.login
             else { continue }

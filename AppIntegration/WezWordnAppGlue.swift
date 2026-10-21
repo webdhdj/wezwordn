@@ -33,6 +33,7 @@ public enum WezWordnAppGlue {
     /// Registers the WezWordn features view factory with
     /// `WezWordnFeaturesPresenter`. Call once at app launch, on the main
     /// actor (AppDelegate satisfies this).
+    @MainActor
     public static func registerWezWordnFeatures() {
         WezWordnFeaturesPresenter.viewControllerFactory = { vaultRepository in
             UIHostingController(
