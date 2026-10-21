@@ -6,7 +6,11 @@
 //
 //   Local Encrypted Files -> LocalEncryptedStorage (AES-256-GCM chunked files)
 //   Authenticator         -> LocalTOTP (OTPGenerator / OTPAuthParser / Base32)
-//   Security Reports      -> VaultHealth (+ optional HIBPClient, k-anonymity)
+//   Security Reports      -> VaultHealth (+ optional HIBPClient, k-anonymity);
+//                            vault items arrive through
+//                            WezWordnVaultHealthDataSource when the host
+//                            installs one (see WezWordnVaultHealthAdapter.swift
+//                            and WezWordnAppGlue.swift — patch 01 seam)
 //   Emergency Recovery    -> EmergencyRecovery (X25519 + HKDF + AES-GCM)
 //   Secure Sharing        -> SecureSharing (X25519 + HKDF + AES-GCM packages)
 //   (login editor demo)   -> ExtendedLoginFields (ExtendedLogin)
@@ -44,8 +48,19 @@ import VaultHealth
 public struct WezWordnFeaturesRootView: View {
     private let keyProvider: KeyProvider
 
-    public init(keyProvider: KeyProvider = KeychainKeyProvider()) {
+    /// Source of decrypted vault items for Security Reports. Injected by
+    /// `WezWordnAppGlue` with an `UpstreamVaultHealthDataSource` bound to
+    /// the settings flow's real `VaultRepository` (patch 01 seam). `nil`
+    /// means "not connected", and the reports screen says so explicitly
+    /// instead of silently falling back to manual-only analysis.
+    private let healthDataSource: (any WezWordnVaultHealthDataSource)?
+
+    public init(
+        keyProvider: KeyProvider = KeychainKeyProvider(),
+        healthDataSource: (any WezWordnVaultHealthDataSource)? = nil
+    ) {
         self.keyProvider = keyProvider
+        self.healthDataSource = healthDataSource
     }
 
     public var body: some View {
@@ -65,7 +80,7 @@ public struct WezWordnFeaturesRootView: View {
                         Label("Authenticator", systemImage: "key.viewfinder")
                     }
                     NavigationLink {
-                        SecurityReportsView()
+                        SecurityReportsView(dataSource: healthDataSource)
                     } label: {
                         Label("Security Reports", systemImage: "checkmark.shield")
                     }
@@ -448,6 +463,24 @@ struct AuthenticatorView: View {
 // MARK: - Security Reports (VaultHealth + optional HIBP k-anonymity check)
 
 struct SecurityReportsView: View {
+    /// Where the vault items come from. `nil` = not connected in this
+    /// build: the repository has to be handed in through the patch-01
+    /// presenter seam (see WezWordnVaultHealthAdapter.swift for the exact
+    /// access-control reason), and this screen reports that state instead
+    /// of pretending the vault is empty.
+    let dataSource: (any WezWordnVaultHealthDataSource)?
+
+    /// Load state of the vault-backed analysis, kept explicit so
+    /// "not connected", "still loading", "loaded N items" and "load
+    /// failed" are never conflated in the UI.
+    private enum VaultLoadState {
+        case notConnected
+        case loading
+        case loaded(itemCount: Int)
+        case failed(message: String)
+    }
+
+    @State private var vaultLoadState: VaultLoadState
     @State private var items: [VaultHealthItem] = []
     @State private var domain = ""
     @State private var password = ""
@@ -457,9 +490,39 @@ struct SecurityReportsView: View {
     @State private var hibpResult: String?
     @State private var hibpBusy = false
 
+    init(dataSource: (any WezWordnVaultHealthDataSource)? = nil) {
+        self.dataSource = dataSource
+        _vaultLoadState = State(initialValue: dataSource == nil ? .notConnected : .loading)
+    }
+
     var body: some View {
         List {
-            Section("Add item to analyse (analysed locally)") {
+            Section("Vault data") {
+                switch vaultLoadState {
+                case .notConnected:
+                    Text("Vault connection is not installed in this build, so no vault items were loaded. The analysis below runs on manually added items only.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                case .loading:
+                    Text("Loading login items from the decrypted vault…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                case let .loaded(count):
+                    Text("Loaded \(count) login item(s) from the decrypted vault (held in memory only) and analysed them automatically. Items added manually below extend the same analysis.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                case let .failed(message):
+                    Text("Could not load vault items: \(message)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if dataSource != nil {
+                    Button("Reload from vault") {
+                        Task { await loadFromVault() }
+                    }
+                }
+            }
+            Section("Add item manually (analysed locally)") {
                 TextField("Domain (e.g. example.com)", text: $domain)
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
@@ -478,7 +541,7 @@ struct SecurityReportsView: View {
                     report = VaultHealth.analyze(items: items)
                 }
                 .disabled(items.isEmpty)
-                Text("\(items.count) item(s) queued. In the host app these items come from the decrypted vault in memory — never from disk or network.")
+                Text("\(items.count) item(s) in the analysis set. Passwords are analysed on-device only — never written to disk or sent over the network.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -518,6 +581,30 @@ struct SecurityReportsView: View {
             }
         }
         .navigationTitle("Security Reports")
+        .task {
+            await loadFromVault()
+        }
+    }
+
+    /// Loads decrypted login items from the installed data source (once,
+    /// when the screen opens, and again on demand via "Reload from
+    /// vault") and runs the health analysis on them immediately. The
+    /// items replace the analysis set; items added manually afterwards
+    /// extend it. No-op when no data source is connected.
+    private func loadFromVault() async {
+        guard let dataSource else {
+            vaultLoadState = .notConnected
+            return
+        }
+        vaultLoadState = .loading
+        do {
+            let fetched = try await dataSource.fetchHealthItems()
+            items = fetched
+            report = VaultHealth.analyze(items: fetched)
+            vaultLoadState = .loaded(itemCount: fetched.count)
+        } catch {
+            vaultLoadState = .failed(message: String(describing: error))
+        }
     }
 
     private func checkHIBP() {
