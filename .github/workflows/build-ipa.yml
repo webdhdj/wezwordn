@@ -97,6 +97,15 @@ jobs:
              "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
           printf '\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
             >> "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          # مزامنة عائلات الإعدادات الثلاث (bwpm/bwa/bwth): upstream يقرأ لكل
+          # عائلة ملف Local خاصًا بها. كتابة bwpm وحده تُبقي TestHarness
+          # (bwth) بهوية افتراضية مختلفة، فتختلف App Groups داخل عملية
+          # الاختبار الواحدة وينهار DataStore على containerURL nil
+          # (فشل Run #16 في ServiceContainerTests/MigrationServiceTests).
+          printf 'ORGANIZATION_IDENTIFIER = com.wezcrypt\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            > "$UPSTREAM_DIR/Configs/Local-bwth.xcconfig"
+          printf 'ORGANIZATION_IDENTIFIER = com.wezcrypt\nSHARED_APP_GROUP_IDENTIFIER = group.com.wezcrypt.wezwordn.shared\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            > "$UPSTREAM_DIR/Configs/Local-bwa.xcconfig"
           cat "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
 
       - name: Copy AppIntegration sources into app target
@@ -220,6 +229,15 @@ jobs:
              "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
           printf '\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
             >> "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
+          # مزامنة عائلات الإعدادات الثلاث (bwpm/bwa/bwth): upstream يقرأ لكل
+          # عائلة ملف Local خاصًا بها. كتابة bwpm وحده تُبقي TestHarness
+          # (bwth) بهوية افتراضية مختلفة، فتختلف App Groups داخل عملية
+          # الاختبار الواحدة وينهار DataStore على containerURL nil
+          # (فشل Run #16 في ServiceContainerTests/MigrationServiceTests).
+          printf 'ORGANIZATION_IDENTIFIER = com.wezcrypt\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            > "$UPSTREAM_DIR/Configs/Local-bwth.xcconfig"
+          printf 'ORGANIZATION_IDENTIFIER = com.wezcrypt\nSHARED_APP_GROUP_IDENTIFIER = group.com.wezcrypt.wezwordn.shared\nDEVELOPMENT_TEAM = UNSIGNEDCI\n' \
+            > "$UPSTREAM_DIR/Configs/Local-bwa.xcconfig"
           cat "$UPSTREAM_DIR/Configs/Local-bwpm.xcconfig"
 
       - name: Copy AppIntegration sources into app target
